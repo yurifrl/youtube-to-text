@@ -5,10 +5,15 @@ from youtube_transcript_api.formatters import TextFormatter
 from deepmultilingualpunctuation import PunctuationModel
 import kss
 import re
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import reverse
 import uuid
 import json
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    NoTranscriptFound,
+    TranscriptsDisabled,
+)
 
 
 def time_str_to_seconds(time_str):
@@ -143,3 +148,57 @@ def transcribe(request, uid):
 
     except Exception:
         return HttpResponseRedirect(reverse("query_view"))
+
+
+def api_transcript(request):
+    try:
+        url = request.GET.get("url", "").strip()
+        video_id_param = request.GET.get("video_id", "").strip()
+        language = request.GET.get("language", "en").strip() or "en"
+
+        if not url and not video_id_param:
+            return JsonResponse({"error": "Provide either 'url' or 'video_id'"}, status=400)
+
+        video_id = video_id_param
+        if not video_id:
+            try:
+                from urllib.parse import urlparse, parse_qs
+
+                parsed_url = urlparse(url)
+                if "youtu.be" in url:
+                    path_segments = parsed_url.path.split("/")
+                    video_id = path_segments[-1]
+                else:
+                    parsed_dict = parse_qs(parsed_url.query)
+                    video_id = parsed_dict["v"][0]
+            except Exception:
+                return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
+
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
+
+        formatter = TextFormatter()
+        formatted = formatter.format_transcript(transcript)
+        formatted = formatted.replace("\n", " ")
+        formatted = re.sub(r"\[(.*?)\]", "", formatted)
+        formatted = re.sub(r"\(.*?\)", "", formatted)
+
+        if language == "en":
+            pm = PunctuationModel()
+            formatted = pm.restore_punctuation(formatted)
+            formatted = re.sub(r"([?!~])\.", r"\1", formatted)
+            formatted = capitalize_sentences(formatted)
+        elif language == "ko":
+            formatted = ". ".join(kss.split_sentences(formatted))
+            formatted = re.sub(r"([?!~])\.", r"\1", formatted)
+
+        return JsonResponse({
+            "video_id": video_id,
+            "language": language,
+            "transcript": formatted,
+        })
+    except NoTranscriptFound:
+        return JsonResponse({"error": "No transcript available for this video/language"}, status=404)
+    except TranscriptsDisabled:
+        return JsonResponse({"error": "Transcripts are disabled for this video"}, status=403)
+    except Exception as exc:
+        return JsonResponse({"error": "Unexpected error", "detail": str(exc)}, status=500)
