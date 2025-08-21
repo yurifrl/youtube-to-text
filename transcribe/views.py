@@ -85,7 +85,9 @@ def query_view(request):
         if form.is_valid():
             instance = form.save(commit=False)
             instance.uid = uuid.uuid4()
-            instance.transcript = form.cleaned_data.get("transcript")
+            transcript_value = form.cleaned_data.get("transcript")
+            if transcript_value is not None:
+                instance.transcript = transcript_value
             instance.save()
 
             return redirect("transcribe", uid=instance.uid)
@@ -174,7 +176,21 @@ def api_transcript(request):
             except Exception:
                 return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
 
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
+        lang_candidates = [language]
+        if language == "en":
+            lang_candidates += ["en-US", "en-GB"]
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=lang_candidates)
+        except Exception as exc:
+            try:
+                transcripts_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                transcript = transcripts_list.find_transcript(lang_candidates).fetch()
+            except NoTranscriptFound:
+                raise
+            except TranscriptsDisabled:
+                raise
+            except Exception:
+                return JsonResponse({"error": "Upstream parsing error fetching transcript", "detail": str(exc)}, status=502)
 
         formatter = TextFormatter()
         formatted = formatter.format_transcript(transcript)
@@ -183,10 +199,13 @@ def api_transcript(request):
         formatted = re.sub(r"\(.*?\)", "", formatted)
 
         if language == "en":
-            pm = PunctuationModel()
-            formatted = pm.restore_punctuation(formatted)
-            formatted = re.sub(r"([?!~])\.", r"\1", formatted)
-            formatted = capitalize_sentences(formatted)
+            try:
+                pm = PunctuationModel()
+                formatted = pm.restore_punctuation(formatted)
+                formatted = re.sub(r"([?!~])\.", r"\1", formatted)
+                formatted = capitalize_sentences(formatted)
+            except Exception:
+                pass
         elif language == "ko":
             formatted = ". ".join(kss.split_sentences(formatted))
             formatted = re.sub(r"([?!~])\.", r"\1", formatted)
