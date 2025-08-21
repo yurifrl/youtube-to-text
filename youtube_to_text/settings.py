@@ -31,33 +31,10 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "") != "False"
 
-ALLOWED_HOSTS = os.environ.get(
-    "DJANGO_ALLOWED_HOSTS",
-    ",".join(
-        [
-            "youtube-to-text.com",
-            "www.youtube-to-text.com",
-            "youtube-to-text-production.up.railway.app",
-            "ytt.syscd.live",
-            "ytt.syscd.tech",
-            "ytt.syscd.dev",
-        ]
-    ),
-).split(",")
+ALLOWED_HOSTS = ["*"]
 
-CSRF_TRUSTED_ORIGINS = os.environ.get(
-    "DJANGO_CSRF_TRUSTED_ORIGINS",
-    ",".join(
-        [
-            "https://youtube-to-text.com",
-            "https://www.youtube-to-text.com",
-            "https://youtube-to-text-production.up.railway.app",
-            "https://ytt.syscd.live",
-            "https://ytt.syscd.tech",
-            "https://ytt.syscd.dev",
-        ]
-    ),
-).split(",")
+_env_csrf_trusted = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = _env_csrf_trusted.split(",") if _env_csrf_trusted else []
 
 
 # Application definition
