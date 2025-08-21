@@ -181,16 +181,23 @@ def api_transcript(request):
             lang_candidates += ["en-US", "en-GB"]
         try:
             transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=lang_candidates)
-        except Exception as exc:
+        except NoTranscriptFound:
             try:
                 transcripts_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                transcript = transcripts_list.find_transcript(lang_candidates).fetch()
+                try:
+                    transcript = transcripts_list.find_transcript(lang_candidates).fetch()
+                except NoTranscriptFound:
+                    transcript = transcripts_list.find_generated_transcript(lang_candidates).fetch()
             except NoTranscriptFound:
-                raise
+                return JsonResponse({"error": "No transcript available for this video/language"}, status=404)
             except TranscriptsDisabled:
-                raise
-            except Exception:
+                return JsonResponse({"error": "Transcripts are disabled for this video"}, status=403)
+            except Exception as exc:
                 return JsonResponse({"error": "Upstream parsing error fetching transcript", "detail": str(exc)}, status=502)
+        except TranscriptsDisabled:
+            return JsonResponse({"error": "Transcripts are disabled for this video"}, status=403)
+        except Exception as exc:
+            return JsonResponse({"error": "Upstream parsing error fetching transcript", "detail": str(exc)}, status=502)
 
         formatter = TextFormatter()
         formatted = formatter.format_transcript(transcript)

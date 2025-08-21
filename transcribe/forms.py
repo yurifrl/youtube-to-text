@@ -95,7 +95,17 @@ class QueryForm(forms.ModelForm):
                 parsed_dict = parse_qs(parsed_url.query)
                 video_id = parsed_dict["v"][0]
 
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
+            lang_candidates = [language]
+            if language == "en":
+                lang_candidates += ["en-US", "en-GB"]
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=lang_candidates)
+            except NoTranscriptFound:
+                transcripts_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                try:
+                    transcript = transcripts_list.find_transcript(lang_candidates).fetch()
+                except NoTranscriptFound:
+                    transcript = transcripts_list.find_generated_transcript(lang_candidates).fetch()
 
             transcript_json = json.dumps(transcript)
             cleaned_data["transcript"] = transcript_json
@@ -129,7 +139,13 @@ class QueryForm(forms.ModelForm):
                 ),
             )
         except Exception:
-            pass
+            self.add_error(
+                "youtube_url",
+                forms.ValidationError(
+                    "Unable to fetch transcript from YouTube. Try again later.",
+                    code="upstream_error",
+                ),
+            )
 
         try:
             transcript_last = transcript[-1]
